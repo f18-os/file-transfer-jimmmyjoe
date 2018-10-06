@@ -17,13 +17,17 @@ class Client():
             try:
                 self.sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sckt.bind((self.host, port))
-                logging.debug("%s: bound to port %d" % (self.name, port))
+                logging.debug("%s: bound to %s" % (self.name, (self.host, port)))
                 break
             except:
                 logging.debug("%s: port %d unavailable" % (self.name, port))
                 self.sckt.close()
                 self.sckt = None
                 continue
+            
+        if self.sckt is None:
+            logging.error("%s: socket failure" % self.name)
+            return None
             
     def connect(self, svrAddr):
         try:
@@ -35,15 +39,26 @@ class Client():
             self.sckt = None
 
     def send(self, data):
-        self.sckt.sendall(data)
+        dlen = str(len(data))
+        data = dlen+','+data
+        self.sckt.sendall(data.encode('UTF-8'))
 
 def main():
-    client = Client('fileClient', '127.0.0.20', 11000)
-    client.connect(Client.defServer)
-    data = 'HHLLEEHLE!'*100
-    dlen = str(len(data))
-    data = dlen+','+data
-    client.send(data.encode('UTF-8'))
+    
+    client0 = Client('fileClient0', '127.0.0.20', 11000)
+    if client0.sckt is not None:
+        client0.connect(Client.defServer)
+        client0.send('Fifty'*50)
+    
+    client1 = Client('fileClient1', '127.0.0.40', 13000)
+    if client1.sckt is not None:
+        client1.connect(Client.defServer)
+        client1.send('Hi'*30)
+
+    client2 = Client('fileClient2', '127.0.0.60', 20000)
+    if client2.sckt is not None:
+        client2.connect(Client.defServer)
+        client2.send('Twenty'*20)
 
 if __name__ == '__main__':
     main()

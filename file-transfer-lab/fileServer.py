@@ -20,16 +20,20 @@ class Server():
         self.bufMax = 512
 
         logging.basicConfig(level=self.loglvl)
+
         self.sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        
-        try:
-            logging.debug("%s: binding to %s" % (name, self.addr))
+        try: # bind to arg
+            logging.debug("%s: binding to %s" % (self.name, self.addr))
             self.sckt.bind(self.addr)
-        except:
-            logging.debug("%s: failed to bind to %s" % (name, self.addr))
-            self.sckt.close()
-            self.sckt = None
-            sys.exit(1)
+        except: # try other ports
+            logging.debug("%s: failed to bind to %s" % (self.name, self.addr))
+            for prt in range(port, port + 100):
+                try:
+                    self.sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    self.sckt.bind((self.host, prt))
+                except:
+                    self.sckt.close()
+                    self.sckt = None
 
         logging.debug("%s: listening on %s" % (self.name, self.addr))
         self.sckt.listen(2)
@@ -41,14 +45,12 @@ class Server():
             logging.debug("%s: registering client %s" % (self.name, addr))
             Server.clientList[addrStr] = ''
         else:
-            logging.debug("%s: client already helped" % self.name)
+            logging.debug("%s: old client" % self.name)
             sys.exit(0)
             
         m, start = 0.0, time.time()
         while(len(self.buf) + 8 < self.bufMax):
-
-            #string
-            data = conn.recv(8).decode('UTF-8')
+            data = conn.recv(8).decode('UTF-8') #string
             
             if not data:
                 logging.debug("%s: empty receive" % self.name)
@@ -56,27 +58,13 @@ class Server():
 
             if m == 0.0: # first iteration, should have clues
                 try:
-                    size, payl = Server.getLength(self.name, data)
+                    size, first = Server.getLength(data)
+                    logging.debug("%s: %d byte file" % (self.name, size))
                 except:
                     logging.debug("%s: bad getLength" % self.name)
-                    
-                print("%s: pattern=%s, data=%s" % (self.name, Server.pattern, data))
-                match = re.match(Server.pattern, data)
-                if not match:
-                    logging.error("%s: bad handshake with %s" % (self.name, addr))
-                    conn.close()
-                    conn = None
                     sys.exit(1)
-                    
-                try:
-                    size = int(match.group('length'))
-                except:
-                    logging.error("%s: can't read length" % self.name)
-                    sys.exit(1)
-                    
-                data = match.group('data')
-                logging.info("%s: %d length file" % (self.name, size))
-                self.buf += data
+
+                self.buf += first
                 m += 1.0
                 
             else: # normal case
@@ -88,32 +76,21 @@ class Server():
 
         # str after done
         Server.clientList[addrStr] += self.buf
-        self.buf = b''
+        self.buf = ''
         print(Server.clientList[addrStr])
 
-    def getLength(name, data):
-        print("%s: pattern=%s, data=%s" % (name,Server.pattern, data))
-        
+    def getLength(data):        
         match = re.match(Server.pattern, data)
         if not match:
-            logging.error("%s: bad handshake" % name)
             return None
             
-            try:
-                size = int(match.group('length'))
-            except:
-                logging.error("%s: can't read length" % self.name)
-                return None
+        try:
+            size = int(match.group('length'))
+        except:
+            return None
                 
-            data = match.group('data')
-            logging.info("%s: %d length file" % (self.name, size))
-            return (size, data)
-        
-            #self.buf += data
-            #m += 1.0
-
-    def addClient(self, addr):
-        Client.clientList.add(addr, '')
+        data = match.group('data')
+        return (size, data)
 
 def main():
 
