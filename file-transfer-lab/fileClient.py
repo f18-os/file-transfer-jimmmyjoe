@@ -39,9 +39,25 @@ class Client():
             self.sckt = None
 
     def send(self, data):
-        dlen = str(len(data))
-        data = dlen+','+data
-        self.sckt.sendall(data.encode('UTF-8'))
+
+        def formatStr(string):
+            l = str(len(string))
+            data = l+','+string
+            data = data.encode('UTF-8')
+            return data
+
+        if isinstance(data, str):
+            fdata = formatStr(data)
+            self.sckt.sendall(fdata)
+            pass
+        elif isinstance(data, file):
+            sendFile(data)
+            pass
+        else:
+            pass
+
+    def sendFile(file):
+        pass
 
 def main():
     
