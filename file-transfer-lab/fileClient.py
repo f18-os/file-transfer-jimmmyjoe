@@ -40,7 +40,10 @@ class Client():
 def main():
     client = Client('fileClient', '127.0.0.20', 11000)
     client.connect(Client.defServer)
-    client.send(b'Hello World!')
+    data = 'HHLLEEHLE!'*100
+    dlen = str(len(data))
+    data = dlen+','+data
+    client.send(data.encode('UTF-8'))
 
 if __name__ == '__main__':
     main()
