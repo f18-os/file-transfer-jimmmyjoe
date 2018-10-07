@@ -38,47 +38,53 @@ class Server():
         logging.debug("%s: listening on %s" % (self.name, self.addr))
         self.sckt.listen(2)
         
-    def clientHandler(self, conn, addr):
+    def clientHandler(self, conn, addr, pid):
         addrStr = addr[0] + ':' + str(addr[1])
         
         if not addrStr in Server.clientList:
-            logging.debug("%s: registering client %s" % (self.name, addr))
+            logging.debug("%s(%d): registering client %s" % (self.name, pid, addr))
             Server.clientList[addrStr] = ''
         else:
-            logging.debug("%s: old client" % self.name)
-            sys.exit(0)
+            logging.debug("%s(%d): %s recognized" % (self.name, pid, addrStr))
+            Server.clientList[addrStr] = '' # overwrite
+            #sys.exit(0)
             
         m, start = 0.0, time.time()
         while(len(self.buf) + 8 < self.bufMax):
             data = conn.recv(8).decode('UTF-8') #string
             
             if not data:
-                logging.debug("%s: empty receive" % self.name)
+                logging.info("%s(%d): finishing up" % (self.name, pid))
+                Server.clientList[addrStr] += self.buf # str
+                lstr = len(self.buf)
+                self.buf = ''
+                
+                if lstr == size:
+                    logging.info("%s(%d): %d byte transfer with %s successful" % (self.name, pid, size, addr))
+                else:
+                    logging.warning("%s(%d): expected %d bytes, got %d bytes" % (self.name, pid, addr, size, lstr))
+
+                print(Server.clientList.get(addrStr))
                 break
 
             if m == 0.0: # first iteration, should have clues
                 try:
                     size, first = Server.getLength(data)
-                    logging.debug("%s: %d byte file" % (self.name, size))
+                    logging.debug("%s(%d): expecting %d byte file" % (self.name, pid, size))
                 except:
-                    logging.debug("%s: bad getLength" % self.name)
+                    logging.debug("%s(%d): bad getLength" % (self.name, pid))
                     sys.exit(1)
 
                 self.buf += first
                 m += 1.0
                 
             else: # normal case
-                logging.debug("%s: received '%s'" % (self.name, data))
+                logging.debug("%s(%d): received '%s'" % (self.name, pid, data))
                 self.buf += data
                 m += 1.0
                 
-        logging.debug("%s: %.2f byte/sec" % (self.name, m/(time.time() - start)))
-
-        # str after done
-        Server.clientList[addrStr] += self.buf
-        self.buf = ''
-        print(Server.clientList[addrStr])
-
+        logging.debug("%s(%d): %.2f byte/sec" % (self.name, pid,  m/(time.time() - start)))
+        
     def getLength(data):        
         match = re.match(Server.pattern, data)
         if not match:
@@ -95,7 +101,7 @@ class Server():
 def main():
 
     # listen for connections
-    listener = Server('fileServer', '127.0.0.1', 10000)
+    listener = Server('fileServer', '127.0.0.1', 10000, logging.DEBUG)
     
     # fork off handler for client conn and wait for more
     while True:
@@ -104,7 +110,7 @@ def main():
         pid = os.fork()
         
         if pid == 0: # child
-            listener.clientHandler(conn, addr)
+            listener.clientHandler(conn, addr, os.getpid())
         else: # parent
             continue
                 
