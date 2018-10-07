@@ -1,11 +1,13 @@
-import sys, os, socket, logging
+import sys, os, socket, re, logging
 
 class Client():
 
     defServer = ('127.0.0.1', 10000)
-    testFileStr = 'testfile.txt'
+    testFiles = ['raven1.txt',
+                 'abcdefg.txt',
+                 'hardtoparse.txt']
 
-    def __init__(self, name, host, port, loglvl=logging.DEBUG):
+    def __init__(self, name, host, port, loglvl=logging.INFO):
         self.name = name
         self.host = host
         self.port = port
@@ -33,50 +35,53 @@ class Client():
     def connect(self, svrAddr):
         try:
             self.sckt.connect(svrAddr)
-            logging.debug("%s: connected to %s" % (self.name, svrAddr))
+            logging.info("%s: connected to server %s" % (self.name, svrAddr))
         except:
-            logging.debug("%s: failed to connect to %s" % (self.name, svrAddr))
+            logging.error("%s: failed to connect to %s" % (self.name, svrAddr))
             self.sckt.close()
             self.sckt = None
 
-    def send(self, data):
+    # deprecated
+    def send(self, fname, string):
+        l = str(len(string))
+        fstring = l+':'+fname+':'+string
+        fstring = fstring.encode('UTF-8')
+        self.sckt.sendall(fstring)
 
-        def formatStr(string):
-            l = str(len(string))
-            fdata = l+','+string
-            fdata = fdata.encode('UTF-8')
-            return fdata
+    def put(self, fname):
+        logging.info("%s: sending %s" % (self.name, fname))
+        try:
+            with open(fname) as putfile:
+                fileStr = putfile.read()
+        except:
+            logging.error("%s: could not read %s" % (self.name, fname))
+            sys.exit(1)
 
-        def formatFile(fd):
-            fstring = fd.read()
-            fdata = formatStr(fstring)
-            return fdata
-
-        if isinstance(data, str):
-            fdata = formatStr(data)
-            self.sckt.sendall(fdata)
-        else:
-            fdata = formatFile(data)
-            self.sckt.sendall(fdata)
+        si = re.search('\.', fname).start()
+        if si:
+            logging.debug("%s: stripping extension from %s" % (self.name, fname))
+            fname = fname[:si]
+            
+        lfile = str(len(fileStr))
+        fstring = lfile+':'+fname+':'+fileStr
+        self.sckt.sendall(fstring.encode('UTF-8'))
 
 def main():
     
     client0 = Client('fileClient0', '127.0.0.20', 11000)
     if client0.sckt is not None:
         client0.connect(Client.defServer)
-        client0.send('Fifty'*50)
+        client0.put(Client.testFiles[0])
     
     client1 = Client('fileClient1', '127.0.0.40', 13000)
     if client1.sckt is not None:
         client1.connect(Client.defServer)
-        client1.send('Hi'*30)
+        client1.put(Client.testFiles[1])
 
     client2 = Client('fileClient2', '127.0.0.60', 20000)
     if client2.sckt is not None:
         client2.connect(Client.defServer)
-        fd = open(Client.testFileStr, 'r')
-        client2.send(fd)
-        fd.close()
+        client2.put(Client.testFiles[2])
 
 if __name__ == '__main__':
     main()

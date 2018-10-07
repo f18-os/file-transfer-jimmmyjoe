@@ -6,11 +6,18 @@ class Server():
         (('127.0.0.1', 10000), 'server0'),
         (('127.0.0.20', 10000), 'server1'))
 
+    # key = host:port as string
+    # val = file as str
     clientList = dict()
 
-    pattern = r'^(?P<length>\d+),(?P<data>.*)'
+    # key = file name as str
+    # val = file as str
+    fileDB = dict()
+
+    strPat = r'^(?P<name>\w+):(?P<data>.*)'
+    filePat  = r'^(?P<length>\d+):(?P<name>\w+):(?P<data>.*)'
     
-    def __init__(self, name, host, port, loglvl=logging.DEBUG):
+    def __init__(self, name, host, port, loglvl=logging.INFO):
         self.name = name
         self.host = host
         self.port = port
@@ -35,7 +42,7 @@ class Server():
                     self.sckt.close()
                     self.sckt = None
 
-        logging.debug("%s: listening on %s" % (self.name, self.addr))
+        logging.info("%s: listening on %s" % (self.name, self.addr))
         self.sckt.listen(2)
         
     def clientHandler(self, conn, addr, pid):
@@ -46,36 +53,35 @@ class Server():
             Server.clientList[addrStr] = ''
         else:
             logging.debug("%s(%d): %s recognized" % (self.name, pid, addrStr))
-            Server.clientList[addrStr] = '' # overwrite
+            #Server.clientList[addrStr] = '' # overwrite
             #sys.exit(0)
             
         m, start = 0.0, time.time()
-        while(len(self.buf) + 8 < self.bufMax):
-            data = conn.recv(8).decode('UTF-8') #string
+        while True: # could check for timeout or bufMax
+            data = conn.recv(32).decode('UTF-8') #string, 32 bytes enough for fname?
             
-            if not data:
-                logging.info("%s(%d): finishing up" % (self.name, pid))
+            if not data: # empty or EOF
                 Server.clientList[addrStr] += self.buf # str
+                Server.fileDB[name] += self.buf
                 lstr = len(self.buf)
                 self.buf = ''
                 
                 if lstr == size:
-                    logging.info("%s(%d): %d byte transfer with %s successful" % (self.name, pid, size, addr))
+                    logging.info("%s(%d):%d/%d bytes received from %s at %.2f byte/sec" % (self.name, pid, lstr, size, addr, m/(time.time() - start)))
                 else:
-                    logging.warning("%s(%d): expected %d bytes, got %d bytes" % (self.name, pid, addr, size, lstr))
-
-                print(Server.clientList.get(addrStr))
+                    logging.warning("%s(%d): expected %d bytes from %s, got %d bytes" % (self.name, pid, size, addr, lstr))
                 break
 
             if m == 0.0: # first iteration, should have clues
                 try:
-                    size, first = Server.getLength(data)
-                    logging.debug("%s(%d): expecting %d byte file" % (self.name, pid, size))
+                    size, name, first = Server.parseFirst(data)
+                    logging.debug("%s(%d): expecting %d bytes in %s" % (self.name, pid, size, name))
                     logging.debug("%s(%d): received '%s'" % (self.name, pid, first))
                 except:
-                    logging.debug("%s(%d): bad getLength" % (self.name, pid))
+                    logging.error("%s(%d): bad parse" % (self.name, pid))
                     sys.exit(1)
 
+                Server.fileDB[name] = '' # initialize entry
                 self.buf += first
                 m += 1.0
                 
@@ -83,29 +89,20 @@ class Server():
                 logging.debug("%s(%d): received '%s'" % (self.name, pid, data))
                 self.buf += data
                 m += 1.0
-                
-        logging.debug("%s(%d): %.2f byte/sec" % (self.name, pid,  m/(time.time() - start)))
         
-    def getLength(data):
-        match = re.match(Server.pattern, data)
-        
-        if not match:
-            return None
-            
-        try:
-            size = int(match.group('length'))
-        except:
-            return None
-                
-        data = match.group('data')
-        return (size, data)
+    def parseFirst(data):
+       match = re.match(Server.filePat, data)
+       if match:
+           size = int(match.group('length'))
+           name = match.group('name')
+           data  = match.group('data')
+           return size, name, data
+       else:
+           return None # no match
 
 def main():
-
-    # listen for connections
-    listener = Server('fileServer', '127.0.0.1', 10000, logging.DEBUG)
+    listener = Server('fileServer', '127.0.0.1', 10000, logging.INFO)
     
-    # fork off handler for client conn and wait for more
     while True:
         conn, addr = listener.sckt.accept()
 
