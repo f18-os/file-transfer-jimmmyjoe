@@ -71,6 +71,7 @@ class Server():
                 try:
                     size, first = Server.getLength(data)
                     logging.debug("%s(%d): expecting %d byte file" % (self.name, pid, size))
+                    logging.debug("%s(%d): received '%s'" % (self.name, pid, first))
                 except:
                     logging.debug("%s(%d): bad getLength" % (self.name, pid))
                     sys.exit(1)
@@ -85,8 +86,9 @@ class Server():
                 
         logging.debug("%s(%d): %.2f byte/sec" % (self.name, pid,  m/(time.time() - start)))
         
-    def getLength(data):        
+    def getLength(data):
         match = re.match(Server.pattern, data)
+        
         if not match:
             return None
             

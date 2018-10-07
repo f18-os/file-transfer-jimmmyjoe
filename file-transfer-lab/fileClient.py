@@ -3,6 +3,7 @@ import sys, os, socket, logging
 class Client():
 
     defServer = ('127.0.0.1', 10000)
+    testFileStr = 'testfile.txt'
 
     def __init__(self, name, host, port, loglvl=logging.DEBUG):
         self.name = name
@@ -42,22 +43,21 @@ class Client():
 
         def formatStr(string):
             l = str(len(string))
-            data = l+','+string
-            data = data.encode('UTF-8')
-            return data
+            fdata = l+','+string
+            fdata = fdata.encode('UTF-8')
+            return fdata
+
+        def formatFile(fd):
+            fstring = fd.read()
+            fdata = formatStr(fstring)
+            return fdata
 
         if isinstance(data, str):
             fdata = formatStr(data)
             self.sckt.sendall(fdata)
-            pass
-        elif isinstance(data, file):
-            sendFile(data)
-            pass
         else:
-            pass
-
-    def sendFile(file):
-        pass
+            fdata = formatFile(data)
+            self.sckt.sendall(fdata)
 
 def main():
     
@@ -74,7 +74,9 @@ def main():
     client2 = Client('fileClient2', '127.0.0.60', 20000)
     if client2.sckt is not None:
         client2.connect(Client.defServer)
-        client2.send('Twenty'*20)
+        fd = open(Client.testFileStr, 'r')
+        client2.send(fd)
+        fd.close()
 
 if __name__ == '__main__':
     main()
