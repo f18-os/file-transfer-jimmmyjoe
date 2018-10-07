@@ -1,0 +1,1 @@
+100:hard:'try#{to.parse}  t!h./is""'\why; }&sys.exit(1)10:10:bits
