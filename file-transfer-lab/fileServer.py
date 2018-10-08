@@ -1,5 +1,7 @@
 import sys, os, socket, threading, re, time, logging
 
+fileDB = dict()
+
 class Server():
     
     defList = (
@@ -14,7 +16,6 @@ class Server():
     # val = file as str
     fileDB = dict()
 
-    strPat = r'^(?P<name>\w+):(?P<data>.*)'
     filePat  = r'^(?P<length>\d+):(?P<name>\w+):(?P<data>.*)'
     
     def __init__(self, name, host, port, loglvl=logging.INFO):
@@ -24,7 +25,6 @@ class Server():
         self.addr = (host, port)
         self.loglvl = loglvl
         self.buf = ''
-        self.bufMax = 512
 
         logging.basicConfig(level=self.loglvl)
 
@@ -44,25 +44,20 @@ class Server():
 
         logging.info("%s: listening on %s" % (self.name, self.addr))
         self.sckt.listen(2)
+
+    def registerClient(addr):
+        addrStr = addr[0] + ':' + str(addr[1])
+        if not addrStr in Server.clientList:
+            Server.clientList[addrStr] = ''
         
     def clientHandler(self, conn, addr, pid):
-        addrStr = addr[0] + ':' + str(addr[1])
-        
-        if not addrStr in Server.clientList:
-            logging.debug("%s(%d): registering client %s" % (self.name, pid, addr))
-            Server.clientList[addrStr] = ''
-        else:
-            logging.debug("%s(%d): %s recognized" % (self.name, pid, addrStr))
-            #Server.clientList[addrStr] = '' # overwrite
-            #sys.exit(0)
-            
+        Server.registerClient(addr)
         m, start = 0.0, time.time()
         while True: # could check for timeout or bufMax
             data = conn.recv(32).decode('UTF-8') #string, 32 bytes enough for fname?
             
             if not data: # empty or EOF
-                Server.clientList[addrStr] += self.buf # str
-                Server.fileDB[name] += self.buf
+                Server.fileDB[name] = self.buf
                 lstr = len(self.buf)
                 self.buf = ''
                 
@@ -70,6 +65,7 @@ class Server():
                     logging.info("%s(%d):%d/%d bytes received from %s at %.2f byte/sec" % (self.name, pid, lstr, size, addr, m/(time.time() - start)))
                 else:
                     logging.warning("%s(%d): expected %d bytes from %s, got %d bytes" % (self.name, pid, size, addr, lstr))
+                    
                 break
 
             if m == 0.0: # first iteration, should have clues
@@ -79,7 +75,11 @@ class Server():
                     logging.debug("%s(%d): received '%s'" % (self.name, pid, first))
                 except:
                     logging.error("%s(%d): bad parse" % (self.name, pid))
-                    sys.exit(1)
+                    break
+
+                if name in Server.fileDB.keys(): # race condition or local var or both?
+                    logging.info("%s: file %s already exists" % (self.name, name))
+                    break
 
                 Server.fileDB[name] = '' # initialize entry
                 self.buf += first
@@ -89,6 +89,9 @@ class Server():
                 logging.debug("%s(%d): received '%s'" % (self.name, pid, data))
                 self.buf += data
                 m += 1.0
+
+        conn.close()
+        logging.debug("%s(%d): exiting" % (self.name, os.getpid()))
         
     def parseFirst(data):
        match = re.match(Server.filePat, data)
@@ -101,17 +104,23 @@ class Server():
            return None # no match
 
 def main():
-    listener = Server('fileServer', '127.0.0.1', 10000, logging.INFO)
-    
-    while True:
-        conn, addr = listener.sckt.accept()
+    listener = Server('fileServer', '127.0.0.1', 10000, logging.DEBUG)
+    listener.sckt.settimeout(10)
+    startTime = time.time()
+    while(time.time() - startTime <= 30):
+        try:
+            conn, addr = listener.sckt.accept()
+        except socket.timeout:
+            continue
 
         pid = os.fork()
         
         if pid == 0: # child
             listener.clientHandler(conn, addr, os.getpid())
+            sys.exit(0)
         else: # parent
+            print("%d files received" % len(Server.fileDB.keys()))
             continue
-                
+        
 if __name__ == '__main__':
     main()
