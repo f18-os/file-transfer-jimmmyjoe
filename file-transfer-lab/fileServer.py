@@ -104,7 +104,7 @@ class Server():
            return None # no match
 
 def main():
-    listener = Server('fileServer', '127.0.0.1', 10000, logging.DEBUG)
+    listener = Server('fileServer', '127.0.0.1', 10000, logging.INFO)
     listener.sckt.settimeout(10)
     startTime = time.time()
     while(time.time() - startTime <= 30):
@@ -119,7 +119,6 @@ def main():
             listener.clientHandler(conn, addr, os.getpid())
             sys.exit(0)
         else: # parent
-            print("%d files received" % len(Server.fileDB.keys()))
             continue
         
 if __name__ == '__main__':
