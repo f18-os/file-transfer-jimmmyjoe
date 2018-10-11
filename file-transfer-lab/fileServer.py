@@ -1,6 +1,6 @@
 import sys, os, socket, threading, re, time, logging
 
-fileDB = dict()
+global_fileDB = dict()
 
 class Server():
     
@@ -10,7 +10,7 @@ class Server():
 
     # key = host:port as string
     # val = file as str
-    clientList = dict()
+    #clientList = dict()
 
     # key = file name as str
     # val = file as str
@@ -26,7 +26,10 @@ class Server():
         self.loglvl = loglvl
         self.buf = ''
 
-        logging.basicConfig(level=self.loglvl)
+        logging.basicConfig(
+            level=self.loglvl,
+            format='%(levelname)s %(message)s'
+        )
 
         self.sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try: # bind to arg
@@ -34,13 +37,7 @@ class Server():
             self.sckt.bind(self.addr)
         except: # try other ports
             logging.debug("%s: failed to bind to %s" % (self.name, self.addr))
-            for prt in range(port, port + 100):
-                try:
-                    self.sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    self.sckt.bind((self.host, prt))
-                except:
-                    self.sckt.close()
-                    self.sckt = None
+            sys.exit(1)
 
         logging.info("%s: listening on %s" % (self.name, self.addr))
         self.sckt.listen(2)
@@ -49,24 +46,29 @@ class Server():
         addrStr = addr[0] + ':' + str(addr[1])
         if not addrStr in Server.clientList:
             Server.clientList[addrStr] = ''
-        
+
+    # Primary escort for incoming connections
     def clientHandler(self, conn, addr, pid):
-        Server.registerClient(addr)
+        #Server.registerClient(addr)
         m, start = 0.0, time.time()
+        
         while True: # could check for timeout or bufMax
             data = conn.recv(32).decode('UTF-8') #string, 32 bytes enough for fname?
             
-            if not data: # empty or EOF
+            if not data: # EOF or empty signal
                 Server.fileDB[name] = self.buf
                 lstr = len(self.buf)
                 self.buf = ''
                 
                 if lstr == size:
                     logging.info("%s(%d):%d/%d bytes received from %s at %.2f byte/sec" % (self.name, pid, lstr, size, addr, m/(time.time() - start)))
+                    break
+                elif size == 0: # getback request
+                    logging.debug("%s(%d): getback request received from %s" % (self.name, pid, addr))
+                    break
                 else:
                     logging.warning("%s(%d): expected %d bytes from %s, got %d bytes" % (self.name, pid, size, addr, lstr))
-                    
-                break
+                    break
 
             if m == 0.0: # first iteration, should have clues
                 try:
@@ -80,7 +82,8 @@ class Server():
                 if name in Server.fileDB.keys(): # race condition or local var or both?
                     logging.info("%s: file %s already exists" % (self.name, name))
                     break
-
+                    
+                    
                 Server.fileDB[name] = '' # initialize entry
                 self.buf += first
                 m += 1.0
@@ -101,17 +104,49 @@ class Server():
            data  = match.group('data')
            return size, name, data
        else:
+           print('NO MATCH')
            return None # no match
+
+    def getbackHandler(self, pid, fname):
+        logging.info("%s(%d): listening for getback" % (self.name, pid))
+        self.sckt.settimeout(5)
+        try:
+            conn, addr = self.sckt.accept()
+        except socket.timeout:
+            pass
+        except Exception as e:
+            logging.error("%s(%d): uncaught exception %s" % (self.name, pid, e))
+            sys.exit(1)
+
+        try:
+            with conn:
+                while True:
+                    self.buf = ''
+                    chunk = conn.recvmsg(32)
+                    self.buf += chunk
+                    logging.debug("%s(%d): received %s" % (self.name, pid, chunk))
+                    
+                    if self.buf is None:
+                        break
+                    
+        except Exception as e:
+            logging.error("%s(%d): uncaught exception %s" % (self.name, pid, e))
+            sys.exit(1)
+        finally:
+            conn.close()
+        
 
 def main():
     listener = Server('fileServer', '127.0.0.1', 10000, logging.DEBUG)
-    listener.sckt.settimeout(10)
     startTime = time.time()
-    while(time.time() - startTime <= 30):
+    
+    while(time.time() - startTime <= 20):
         try:
             conn, addr = listener.sckt.accept()
         except socket.timeout:
             continue
+        except: # catchall
+            sys.exit(1)
 
         pid = os.fork()
         
@@ -119,7 +154,6 @@ def main():
             listener.clientHandler(conn, addr, os.getpid())
             sys.exit(0)
         else: # parent
-            print("%d files received" % len(Server.fileDB.keys()))
             continue
         
 if __name__ == '__main__':

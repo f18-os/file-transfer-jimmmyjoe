@@ -1,5 +1,7 @@
 import sys, os, socket, re, logging
 
+global_fileDB = dict()
+
 class Client():
 
     defServer = ('127.0.0.1', 10000)
@@ -11,10 +13,15 @@ class Client():
         self.name = name
         self.host = host
         self.port = port
+        self.buf = ''
         self.addr = (host, port)
         self.loglvl = loglvl
         
-        logging.basicConfig(level=self.loglvl)
+        logging.basicConfig(
+            level=self.loglvl,
+            format='%(levelname)s %(message)s'
+        )
+
 
         for port in range(self.port, self.port + 100):
             try:
@@ -66,6 +73,41 @@ class Client():
         fstring = lfile+':'+fname+':'+fileStr
         self.sckt.sendall(fstring.encode('UTF-8'))
 
+    def getBack(self, fileStr):
+        global global_fileDB
+        fstring = '0'+':'+fileStr+':'+''
+        fstring = fstring.encode('UTF-8')
+        # send 0:<name>:<empty str>
+        logging.info("%s: requesting file %s" % (self.name, fileStr))
+        self.sckt.sendall(fstring)
+
+        pid = os.fork()
+
+        if pid == 0: # child
+            self.sckt.settimeout(5)
+
+            while True:
+
+                try:
+                    conn, addr = self.sckt.accept()
+                except socket.timeout:
+                    break
+                
+                chunk = self.sckt.recv(32)
+                
+                if chunk is None:
+                    break
+
+                logging.debug("%s(%d): received %s" % (self.name, pid, chunk))
+                self.buf += chunk
+
+            logging.info("%s(%d): received %s" % (self.name, pid, self.buf))
+            global_fileDB['test'] = self.buf
+            
+        else: # parent
+            cpid = os.wait()
+                    
+
 def main():
     
     client0 = Client('fileClient0', '127.0.0.20', 11000)
@@ -78,10 +120,12 @@ def main():
         client1.connect(Client.defServer)
         client1.put(Client.testFiles[1])
 
-    client2 = Client('fileClient2', '127.0.0.60', 20000)
+    client2 = Client('fileClient2', '127.0.0.60', 20000, logging.DEBUG)
     if client2.sckt is not None:
         client2.connect(Client.defServer)
         client2.put(Client.testFiles[2])
+        
+        client2.getBack(Client.testFiles[1])
 
 if __name__ == '__main__':
     main()
