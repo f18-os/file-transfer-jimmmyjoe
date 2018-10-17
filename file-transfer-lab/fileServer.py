@@ -1,5 +1,4 @@
 import sys, os, socket, threading, re, time, logging
-from threading import Thread
 
 class Server():
     # key = file name as str
@@ -51,7 +50,7 @@ class Server():
        else:
            return None # no match
     
-    class ClientHandler(Thread):
+    class ClientHandler(threading.Thread):
         
         activeThreads = 0
         totalThreads = 0
@@ -60,7 +59,7 @@ class Server():
         #lock = threading.Lock()
         
         def __init__(self, sock, cliAddr):
-            Thread.__init__(self, daemon=True)
+            threading.Thread.__init__(self, daemon=True)
             
             Server.lock.acquire()
             self.name = 'CH' + str(Server.ClientHandler.totalThreads)
@@ -76,6 +75,8 @@ class Server():
             self.start()
             
         def run(self):
+            # induce race condition
+            time.sleep(0.01)
             self.handleClient()
             
         def handleClient(self):
@@ -94,8 +95,8 @@ class Server():
                 if m == 0.0: # first iteration, should have clues
                     try:
                         size, fname, first = Server.parseFirst(data)
-                        logging.debug("%s(%d): expecting %d bytes in %s" % (self.name, self.pid, size, fname))
-                        logging.debug("%s(%d): received '%s'" % (self.name, self.pid, first))
+                        logging.debug("%s(%d): expecting %d bytes in %s from %s" % (self.name, self.pid, size, fname, self.cliAddr))
+                        logging.debug("%s(%d): received '%s' from %s" % (self.name, self.pid, first, self.cliAddr))
                     except:
                         logging.error("%s(%d): bad parse" % (self.name, self.pid))
                         break
@@ -112,18 +113,20 @@ class Server():
                     m += 1.0
                 
                 else: # normal case
-                    logging.debug("%s(%d): received '%s'" % (self.name, self.pid, data))
+                    logging.debug("%s(%d): received '%s' from %s" % (self.name, self.pid, data, self.cliAddr))
                     self.buf += data
                     m += 1.0
 
-            self.buf = ''
             self.sock.close()
             with Server.lock:
-                logging.debug("%s(%d): finished handling client" % (self.name, self.pid))
+                logging.debug("%s(%d): finished handling client %s" % (self.name, self.pid, self.cliAddr))
+                if(len(self.buf) != 0):
+                    Server.SERVER_DB[fname] = self.buf
                 Server.ClientHandler.activeThreads += -1
+            self.buf = ''
 
 def main():
-    listener = Server('fileServer', '127.0.0.1', 10000, logging.DEBUG)
+    listener = Server('fileServer', '127.0.0.1', 10000, logging.INFO)
     listener.sckt.settimeout(10)
     while True:
         try:
@@ -132,6 +135,8 @@ def main():
         except socket.timeout:
             print('fileServer timed out')
             break
+
+    print(listener.SERVER_DB)
 
 if __name__ == '__main__':
     main()
