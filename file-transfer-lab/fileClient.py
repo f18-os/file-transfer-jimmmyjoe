@@ -13,10 +13,10 @@ class Client():
         self.host = host
         self.port = port
         self.addr = (host, port)
-        self.loglvl = loglvl
-        
+        self.loglvl = loglvl        
         logging.basicConfig(level=self.loglvl, format='%(levelname)s %(message)s')
 
+        # Search for an available port (was having problems re-running)
         for port in range(self.port, self.port + 100):
             try:
                 self.sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -43,13 +43,6 @@ class Client():
             self.sckt = None
             sys.exit(1)
 
-    # deprecated
-    def send(self, fname, string):
-        l = str(len(string))
-        fstring = l+':'+fname+':'+string
-        fstring = fstring.encode('UTF-8')
-        self.sckt.sendall(fstring)
-
     def put(self, fname):
         logging.info("%s: sending %s" % (self.name, fname))
         try:
@@ -70,6 +63,7 @@ class Client():
 
 def main():
 
+    # generate a bunch of puts
     for x in range(20, 100, 5):
         host = '127.0.0.' + str(x)
         c = Client('fileClient' + str(x), host, 20000)

@@ -54,20 +54,16 @@ class Server():
         
         activeThreads = 0
         totalThreads = 0
-
-        # Lock object for threads
-        #lock = threading.Lock()
         
         def __init__(self, sock, cliAddr):
             threading.Thread.__init__(self, daemon=True)
             
-            Server.lock.acquire()
-            self.name = 'CH' + str(Server.ClientHandler.totalThreads)
-            Server.ClientHandler.activeThreads += 1
-            Server.ClientHandler.totalThreads += 1
-            Server.lock.release()
+            with Server.lock.acquire():
+                self.name = 'CH' + str(Server.ClientHandler.totalThreads)
+                Server.ClientHandler.activeThreads += 1
+                Server.ClientHandler.totalThreads += 1
             
-            self.pid = os.getpid()
+            self.pid = os.getpid() # same for all threads
             self.sock = sock
             self.cliAddr = cliAddr
             self.buf = ''
@@ -75,14 +71,14 @@ class Server():
             self.start()
             
         def run(self):
-            # induce race condition
+            # encourage race condition
             time.sleep(0.01)
             self.handleClient()
             
         def handleClient(self):
             m, start = 0.0, time.time() # double for division later
-            while True: # could check for timeout or bufMax
-                data = self.sock.recv(32).decode('UTF-8') #string, 32 bytes enough for fname?
+            while True:
+                data = self.sock.recv(32).decode('UTF-8') # hopefully 32 bytes is enough for fname
             
                 if not data: # empty or EOF
                     lstr = len(self.buf)
