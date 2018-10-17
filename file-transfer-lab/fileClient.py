@@ -3,6 +3,7 @@ import sys, os, socket, re, logging
 class Client():
 
     defServer = ('127.0.0.1', 10000)
+    
     testFiles = ['raven1.txt',
                  'abcdefg.txt',
                  'hardtoparse.txt']
@@ -14,13 +15,13 @@ class Client():
         self.addr = (host, port)
         self.loglvl = loglvl
         
-        logging.basicConfig(level=self.loglvl)
+        logging.basicConfig(level=self.loglvl, format='%(levelname)s %(message)s')
 
         for port in range(self.port, self.port + 100):
             try:
                 self.sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sckt.bind((self.host, port))
-                logging.debug("%s: bound to %s" % (self.name, (self.host, port)))
+                logging.info("%s: bound to %s" % (self.name, (self.host, port)))
                 break
             except:
                 logging.debug("%s: port %d unavailable" % (self.name, port))
@@ -40,6 +41,7 @@ class Client():
             logging.error("%s: failed to connect to %s" % (self.name, svrAddr))
             self.sckt.close()
             self.sckt = None
+            sys.exit(1)
 
     # deprecated
     def send(self, fname, string):
@@ -63,7 +65,7 @@ class Client():
             fname = fname[:si]
             
         lfile = str(len(fileStr))
-        fstring = lfile+':'+fname+':'+fileStr
+        fstring = lfile + ':' + fname + ':' + fileStr
         self.sckt.sendall(fstring.encode('UTF-8'))
 
 def main():

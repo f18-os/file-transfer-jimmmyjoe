@@ -1,21 +1,15 @@
 import sys, os, socket, threading, re, time, logging
-
-fileDB = dict()
+from threading import Thread
 
 class Server():
-    
-    defList = (
-        (('127.0.0.1', 10000), 'server0'),
-        (('127.0.0.20', 10000), 'server1'))
-
-    # key = host:port as string
-    # val = file as str
-    clientList = dict()
-
     # key = file name as str
     # val = file as str
-    fileDB = dict()
+    SERVER_DB = dict()
 
+    # Lock for accessing SERVER_DB
+    lock = threading.Lock()
+
+    # Regex for handshake
     filePat  = r'^(?P<length>\d+):(?P<name>\w+):(?P<data>.*)'
     
     def __init__(self, name, host, port, loglvl=logging.INFO):
@@ -24,9 +18,7 @@ class Server():
         self.port = port
         self.addr = (host, port)
         self.loglvl = loglvl
-        self.buf = ''
-
-        logging.basicConfig(level=self.loglvl)
+        logging.basicConfig(level=self.loglvl, format='%(levelname)s %(message)s')
 
         self.sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try: # bind to arg
@@ -42,56 +34,12 @@ class Server():
                     self.sckt.close()
                     self.sckt = None
 
+        if self.sckt is None:
+            logging.error("%s: failed to bind" % self.name)
+            sys.exit(1)
+
         logging.info("%s: listening on %s" % (self.name, self.addr))
         self.sckt.listen(2)
-
-    def registerClient(addr):
-        addrStr = addr[0] + ':' + str(addr[1])
-        if not addrStr in Server.clientList:
-            Server.clientList[addrStr] = ''
-        
-    def clientHandler(self, conn, addr, pid):
-        Server.registerClient(addr)
-        m, start = 0.0, time.time()
-        while True: # could check for timeout or bufMax
-            data = conn.recv(32).decode('UTF-8') #string, 32 bytes enough for fname?
-            
-            if not data: # empty or EOF
-                Server.fileDB[name] = self.buf
-                lstr = len(self.buf)
-                self.buf = ''
-                
-                if lstr == size:
-                    logging.info("%s(%d):%d/%d bytes received from %s at %.2f byte/sec" % (self.name, pid, lstr, size, addr, m/(time.time() - start)))
-                else:
-                    logging.warning("%s(%d): expected %d bytes from %s, got %d bytes" % (self.name, pid, size, addr, lstr))
-                    
-                break
-
-            if m == 0.0: # first iteration, should have clues
-                try:
-                    size, name, first = Server.parseFirst(data)
-                    logging.debug("%s(%d): expecting %d bytes in %s" % (self.name, pid, size, name))
-                    logging.debug("%s(%d): received '%s'" % (self.name, pid, first))
-                except:
-                    logging.error("%s(%d): bad parse" % (self.name, pid))
-                    break
-
-                if name in Server.fileDB.keys(): # race condition or local var or both?
-                    logging.info("%s: file %s already exists" % (self.name, name))
-                    break
-
-                Server.fileDB[name] = '' # initialize entry
-                self.buf += first
-                m += 1.0
-                
-            else: # normal case
-                logging.debug("%s(%d): received '%s'" % (self.name, pid, data))
-                self.buf += data
-                m += 1.0
-
-        conn.close()
-        logging.debug("%s(%d): exiting" % (self.name, os.getpid()))
         
     def parseFirst(data):
        match = re.match(Server.filePat, data)
@@ -102,24 +50,88 @@ class Server():
            return size, name, data
        else:
            return None # no match
+    
+    class ClientHandler(Thread):
+        
+        activeThreads = 0
+        totalThreads = 0
+
+        # Lock object for threads
+        #lock = threading.Lock()
+        
+        def __init__(self, sock, cliAddr):
+            Thread.__init__(self, daemon=True)
+            
+            Server.lock.acquire()
+            self.name = 'CH' + str(Server.ClientHandler.totalThreads)
+            Server.ClientHandler.activeThreads += 1
+            Server.ClientHandler.totalThreads += 1
+            Server.lock.release()
+            
+            self.pid = os.getpid()
+            self.sock = sock
+            self.cliAddr = cliAddr
+            self.buf = ''
+            
+            self.start()
+            
+        def run(self):
+            self.handleClient()
+            
+        def handleClient(self):
+            m, start = 0.0, time.time() # double for division later
+            while True: # could check for timeout or bufMax
+                data = self.sock.recv(32).decode('UTF-8') #string, 32 bytes enough for fname?
+            
+                if not data: # empty or EOF
+                    lstr = len(self.buf)
+                    if lstr == size:
+                        logging.info("%s(%d):%d/%d bytes received from %s at %.2f byte/sec" % (self.name, self.pid, lstr, size, self.cliAddr, m/(time.time() - start)))
+                    else:
+                        logging.warning("%s(%d): expected %d bytes from %s, got %d bytes" % (self.name, pid, size, self.cliAddr, lstr))
+                    break
+
+                if m == 0.0: # first iteration, should have clues
+                    try:
+                        size, fname, first = Server.parseFirst(data)
+                        logging.debug("%s(%d): expecting %d bytes in %s" % (self.name, self.pid, size, fname))
+                        logging.debug("%s(%d): received '%s'" % (self.name, self.pid, first))
+                    except:
+                        logging.error("%s(%d): bad parse" % (self.name, self.pid))
+                        break
+                    
+                    with Server.lock:
+                        if fname in Server.SERVER_DB.keys(): # race condition
+                            logging.info("%s(%d): file %s already exists" % (self.name, self.pid, fname))
+                            break
+                        else:
+                            Server.SERVER_DB[fname] = '' # initialize entry
+                            logging.info("%s(%d): reserving space for %s" % (self.name, self.pid, fname))
+                            
+                    self.buf += first
+                    m += 1.0
+                
+                else: # normal case
+                    logging.debug("%s(%d): received '%s'" % (self.name, self.pid, data))
+                    self.buf += data
+                    m += 1.0
+
+            self.buf = ''
+            self.sock.close()
+            with Server.lock:
+                logging.debug("%s(%d): finished handling client" % (self.name, self.pid))
+                Server.ClientHandler.activeThreads += -1
 
 def main():
-    listener = Server('fileServer', '127.0.0.1', 10000, logging.INFO)
+    listener = Server('fileServer', '127.0.0.1', 10000, logging.DEBUG)
     listener.sckt.settimeout(10)
-    startTime = time.time()
-    while(time.time() - startTime <= 30):
+    while True:
         try:
-            conn, addr = listener.sckt.accept()
+            conn, cliAddr = listener.sckt.accept()
+            listener.ClientHandler(conn, cliAddr)
         except socket.timeout:
-            continue
+            print('fileServer timed out')
+            break
 
-        pid = os.fork()
-        
-        if pid == 0: # child
-            listener.clientHandler(conn, addr, os.getpid())
-            sys.exit(0)
-        else: # parent
-            continue
-        
 if __name__ == '__main__':
     main()
